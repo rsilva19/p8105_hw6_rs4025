@@ -47,7 +47,7 @@ birthweight =
 
 ```
 
-Since we are starting off with 20 variables, we elimate some based on general hypothesis for variables that might not explain birthweight well. We also elimate weight variables for which there exists a BMI variables based on that category. 
+Since we are starting off with 20 variables, we elimate some based on general hypotheses for variables that might not explain birthweight well. We also elimate weight variables for which there exists a BMI variables based on that category, accounting for possible multicolinearity. 
 
 ```{r}
 
@@ -56,8 +56,8 @@ Since we are starting off with 20 variables, we elimate some based on general hy
 
 In order to predict birthweight, we want to understand how our given variables relate to birthweight, and ultimately, include the most important predictors of birthweight in our model. 
 
-We include some graphically dispictions of the relationships that seem to have the strongest association. 
-```{r}
+We include some graphical dispictions of the relationships that seem to have the strongest association. 
+```{r, warning = FALSE}
 # correalation matrix 
 birthweight_numeric = 
   select_if(birthweight, is.numeric)
@@ -77,21 +77,103 @@ birthweight %>%
   ggplot(aes(x = gaweeks, y = bwt)) + 
   geom_point(alpha = .5)
 
-# chose wtgain over delivery weight because thinking more relative 
+# chose wtgain over delivery weight because thinking more relative? WHICH ONE 
 birthweight %>% 
   ggplot(aes(x = wtgain, y = bwt)) + 
+  geom_point(alpha = .5)
+
+birthweight %>% 
+  ggplot(aes(x = delwt, y = bwt)) + 
+  geom_point(alpha = .5)
+
+birthweight %>% 
+  ggplot(aes(x = delwt, y = wtgain)) + 
   geom_point(alpha = .5)
 ```
 
 ```{r}
-linear_mod = lm(bwt ~ bhead + blength +gaweeks + wtgain, data = birthweight)
-smooth_mod = gam(bwt ~ s(bhead) + s(blength) + s(gaweeks) + s(wtgain), data = birthweight)
+linear_mod = lm(bwt ~ bhead + blength + gaweeks + wtgain + smoken, data = birthweight)
+linear_mod %>% broom::glance()
 
+mod1 = lm(bwt ~ bhead*blength*gaweeks*wtgain, data = birthweight)
+mod1 %>% broom::glance()
+mod1 %>% broom::tidy()
+
+mod2 = lm(bwt~ ., data = birthweight)
+summary(mod2)
+
+# adding all continuous that seem to have strong correlation and adding all catergorical except malform
+mod3 = lm(bwt~ bhead + blength + gaweeks + wtgain + delwt + mrace + frace + babysex  + smoken, data = birthweight)
+summary(mod3)
+
+# add interactions for sex 
+mod4 = lm(bwt~ (bhead + blength + gaweeks + wtgain + delwt + mrace + frace +  + smoken)*babysex, data = birthweight)
+summary(mod4)
+
+# only keep significant interactions
+mod4 = lm(bwt~ bhead*babysex + blength + gaweeks + wtgain + delwt + smoken+ mrace + frace, data = birthweight)
+summary(mod4)
+
+# check for multicollinearity 
+car::vif(mod4)
+
+# take out dad race bc high correlation with mom race 
+mod4 = lm(bwt~ bhead+ babysex + blength + gaweeks + wtgain + delwt + mrace + smoken, data = birthweight)
+summary(mod4)
+car::vif(mod4)
+
+# do some anovas - partial f-tests
+mod5 = lm(bwt~ bhead*babysex + blength + gaweeks + wtgain + delwt + mrace  + smoken, data = birthweight)
+anova(mod4, mod5) # keep interaction
+
+mod_full = lm(bwt ~ ., data = birthweight)
+anova(mod5, mod_full) # says i should do full
+summary(mod_full)
+summary(mod5)
+
+# check for multicollinearity 
+car::vif(mod5)
+
+mod5 %>% 
+  broom::tidy() %>% 
+  select(term, estimate, p.value) %>% 
+  knitr::kable(digits = 3)
 
 ```
 
-# check residuals 
+winner for now: mod5
+Even though a Nested F- test suggests the full model is more usual (significant F-stat), since the adjusted $R^2$ only increases from my model to a full model by 0.001, and my model is simpler and more interpretable, I will go with the smaller model using `bhead`, `babysex`, `bhead*babysex`, `blength`, `gaweeks`, `wtgain`, `delwt`, `mrace`, and `smoken` as predictors. 
+The proposed regression model: bwt~ bhead*babysex + blength + gaweeks + wtgain + delwt + mrace  + smoken
+
+# show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
+```{r, warning = FALSE, message= FALSE}
+resid_df = modelr::add_residuals(birthweight, mod5)
+pred_df = modelr::add_predictions(birthweight, mod5)
+bwt_pred = left_join(resid_df, pred_df)
+
+bwt_pred %>% 
+  ggplot(aes(x = pred, y = resid)) + geom_point()
+
+birthweight %>% 
+  modelr::add_residuals(mod5) %>% 
+  ggplot(aes(x = bhead, y = resid)) + geom_point()
+
+birthweight %>% 
+  modelr::add_residuals(mod5) %>% 
+  ggplot(aes(x = blength, y = resid)) + geom_point()
+```
+
+## Comparing with two other models 
+
+* birthweight ~ blength + gaweeks
+
+* birthweight ~ bhead * blength * babysex
+
+## Checking residuals 
 ```{r}
+mod1 = lm(bwt ~ blength + gaweeks, data = birthweight)
+mod2 = lm(bwt ~ bhead*blength*babysex, data = birthweight)
+
 cv_df = 
   crossv_mc(birthweight, 100) 
 cv_df =
@@ -102,10 +184,12 @@ cv_df =
 
 birthweight_cv = 
   cv_df %>% 
-  mutate(linear_mod  = map(train, ~lm(bwt ~ bhead + blength +gaweeks + wtgain, data = .x)),
-         smooth_mod  = map(train, ~mgcv::gam(bwt ~ s(bhead) + s(blength) + s(gaweeks) + s(wtgain), data = .x))) %>% 
-  mutate(rmse_linear = map2_dbl(linear_mod, test, ~rmse(model = .x, data = .y)),
-         rmse_smooth = map2_dbl(smooth_mod, test, ~rmse(model = .x, data = .y)))
+  mutate(mod  = map(train, ~lm(bwt~ bhead*babysex + blength + gaweeks + wtgain + delwt + mrace  + smoken, data = .x)),
+         mod1  = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+         mod2  = map(train, ~lm(bwt ~ bhead * blength * babysex, data = .x))) %>% 
+  mutate(rmse_mod = map2_dbl(mod , test, ~rmse(model = .x, data = .y)),
+         rmse_mod1 = map2_dbl(mod1, test, ~rmse(model = .x, data = .y)), 
+         rmse_mod2 = map2_dbl(mod2, test, ~rmse(model = .x, data = .y)))
 ```
 
 
@@ -121,6 +205,12 @@ birthweight_cv %>%
   ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
 
+
+Chosen model has smalles rmse which is a good way to check if model has predictions with large variances. It seems that on average the rmse is lowest in my chosen model. 
+
+```{r}
+smooth_mod = gam(bwt ~ s(bhead) + s(blength) + s(gaweeks) + s(wtgain), data = birthweight)
+```
 
 
 
@@ -159,10 +249,10 @@ get_terms = function(model){
       log_b1b2 = log(output2$estimate[1]*output2$estimate[2])
     ))
 }
-
+set.seed(1)
 weather_boot = 
   weather_df %>% 
-  modelr::bootstrap(n = 100) %>% # change to 5000
+  modelr::bootstrap(n = 5000) %>% # change to 5000
   mutate(
     models = map(strap, ~lm(tmax ~ tmin, data = .x)),
     results = map(models, get_terms)) %>% 
@@ -194,19 +284,23 @@ weather_boot %>%
   
 ```
 
-# discribe distributions
+# describe distributions
 
- identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for r̂ 2 and log(β̂ 0∗β̂ 1)
-
+The distribution of $R^2$ is symmetric and unimodel with a sharp peak around 0.912. It seems that there is small variation on its values as most fits between 0.88 and 0.94. 
+  
+R-Squared 95% CI:
 ```{r}
-quantile(weather_boot$r_squared, probs = c(0.025, 0.975)) %>% 
-  knitr::kable(
-    caption = "R-Squared 95% CI"
-  )
-quantile(weather_boot$log_b1b2, probs = c(0.025, 0.975)) %>% 
-  knitr::kable(
-    caption = "Log(B1*B0) 95% CI"
-  )
+round(quantile(weather_boot$r_squared, probs = c(0.025, 0.975)), digits = 3) 
 ```
 
-Our 95% confidence interval for r-squared is ()
+95% of our boothstrap samples obtained an $R^2$ value between 0.894 and 0.927.
+
+The distribution of log(Beta1*Beta0) is symmetric and centered around 2.02.
+
+Log(B1*B0) 95% CI:
+```{r}
+round(quantile(weather_boot$log_b1b2, probs = c(0.025, 0.975)), digits = 3) 
+```
+
+95% of our boothstrap samples obtained a log(B1*B0) value between 1.965 and 2.059.
+
