@@ -91,6 +91,24 @@ birthweight %>%
   geom_point(alpha = .5)
 ```
 
+
+```{r}
+# use criterion approach to identify 'best' subset
+subset = regsubsets(bwt ~ bhead + blength + gaweeks + wtgain + delwt + mrace + frace + babysex  + smoken, data = birthweight)
+summary(subset)
+leaps(x =hospital_subdata[,2:7], y =hospital_subdata[,1], nbest =2, method ="Cp")
+
+x = birthweight %>% 
+        select(bhead, blength,gaweeks,wtgain,delwt,mrace,frace,babysex ,smoken)
+y = birthweight %>% pull(bwt)
+# criterion based on adj r^2
+leaps(x = x, 
+      y = y, 
+      nbest =2, 
+      method ="adjr2")
+```
+
+
 ```{r}
 linear_mod = lm(bwt ~ bhead + blength + gaweeks + wtgain + smoken, data = birthweight)
 linear_mod %>% broom::glance()
