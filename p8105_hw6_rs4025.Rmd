@@ -11,6 +11,7 @@ library(viridis)
 library(modelr)
 library(mgcv)
 
+
 knitr::opts_chunk$set(
 	echo = TRUE,
 	warning = FALSE,
@@ -31,7 +32,7 @@ theme_set(theme_minimal() + theme(legend.position = "bottom"))
 
 ### Problem 1 
 
-```{r}
+```{r, warning= FALSE, message=FALSE}
 # data read in 
 birthweight = 
   read_csv("./data/birthweight.csv") %>% 
@@ -47,22 +48,20 @@ birthweight =
 
 ```
 
-Since we are starting off with 20 variables, we elimate some based on general hypotheses for variables that might not explain birthweight well. We also elimate weight variables for which there exists a BMI variables based on that category, accounting for possible multicolinearity. 
+Since we are starting off with 20 variables, we elimate some based on general hypotheses about variables that might not explain birthweight well and based on their respective correlation to birthweight `wgt`, shown below.   
 
-```{r}
-
-```
-
-
-In order to predict birthweight, we want to understand how our given variables relate to birthweight, and ultimately, include the most important predictors of birthweight in our model. 
-
-We include some graphical dispictions of the relationships that seem to have the strongest association. 
 ```{r, warning = FALSE}
 # correalation matrix 
 birthweight_numeric = 
   select_if(birthweight, is.numeric)
 round(cor(birthweight_numeric %>% select(-bwt), birthweight %>% pull(bwt)), 2)
+```
 
+
+In order to predict birthweight, we want to understand how our given variables relate to birthweight, and ultimately, include the most important predictors of birthweight in our model. We will focus on the variables, `bhead`, `blength`, `gaweeks`, `wtgain`, `delwt`, `mrace`, `frace`, `babysex`, and `smoken`. 
+
+We include some graphical dispictions of the relationships that seem to have the strongest association. A linear relationship looks likely between many of the variables and `birthweight`. 
+```{r, warning = FALSE}
 # baby’s head circumference at birth (centimeters)
 birthweight %>% 
   ggplot(aes(x = bhead, y = bwt)) + 
@@ -73,30 +72,19 @@ birthweight %>%
   ggplot(aes(x = blength, y = bwt)) + 
   geom_point(alpha = .5)
 
+# baby's gestational age
 birthweight %>% 
   ggplot(aes(x = gaweeks, y = bwt)) + 
-  geom_point(alpha = .5)
-
-# chose wtgain over delivery weight because thinking more relative? WHICH ONE 
-birthweight %>% 
-  ggplot(aes(x = wtgain, y = bwt)) + 
-  geom_point(alpha = .5)
-
-birthweight %>% 
-  ggplot(aes(x = delwt, y = bwt)) + 
-  geom_point(alpha = .5)
-
-birthweight %>% 
-  ggplot(aes(x = delwt, y = wtgain)) + 
   geom_point(alpha = .5)
 ```
 
 
 ```{r}
 # use criterion approach to identify 'best' subset
+library(leaps)
 subset = regsubsets(bwt ~ bhead + blength + gaweeks + wtgain + delwt + mrace + frace + babysex  + smoken, data = birthweight)
 summary(subset)
-leaps(x =hospital_subdata[,2:7], y =hospital_subdata[,1], nbest =2, method ="Cp")
+leaps(x =hospital_subdata[,2:7], y =hospital_subdata[,1], nbest =2, method ="")
 
 x = birthweight %>% 
         select(bhead, blength,gaweeks,wtgain,delwt,mrace,frace,babysex ,smoken)
